@@ -10,6 +10,7 @@ use Codeception\Event\FailEvent;
 use Codeception\Events;
 use Codeception\Platform\Extension;
 use Codeception\Exception\ConfigurationException;
+use Codeception\Test\Cest;
 use Symfony\Component\Finder\Finder;
 use Symfony\Component\Filesystem\Filesystem;
 use Yandex\Allure\Adapter\Annotation;
@@ -44,6 +45,7 @@ class AllureAdapter extends Extension
     static $events = [
         Events::SUITE_BEFORE => 'suiteBefore',
         Events::SUITE_AFTER => 'suiteAfter',
+        Events::TEST_BEFORE => 'testBefore',
         Events::TEST_START => 'testStart',
         Events::TEST_FAIL => 'testFail',
         Events::TEST_ERROR => 'testError',
@@ -56,7 +58,7 @@ class AllureAdapter extends Extension
 
     /**
      * Annotations that should be ignored by the annotaions parser (especially PHPUnit annotations).
-     * 
+     *
      * @var array
      */
     private $ignoredAnnotations = [
@@ -70,7 +72,7 @@ class AllureAdapter extends Extension
 
     /**
      * Extra annotations to ignore in addition to standard PHPUnit annotations.
-     * 
+     *
      * @param array $ignoredAnnotations
      */
     public function _initialize(array $ignoredAnnotations = [])
@@ -103,7 +105,7 @@ class AllureAdapter extends Extension
     {
         if (array_key_exists($optionKey, $this->config)) {
             return $this->config[$optionKey];
-        } 
+        }
         return $defaultValue;
     }
 
@@ -173,7 +175,7 @@ class AllureAdapter extends Extension
             $filesystem->remove($files);
         }
     }
-    
+
     public function suiteBefore(SuiteEvent $suiteEvent)
     {
         $suite = $suiteEvent->getSuite();
@@ -194,15 +196,31 @@ class AllureAdapter extends Extension
         $this->getLifecycle()->fire(new TestSuiteFinishedEvent($this->uuid));
     }
 
+    public function testBefore(TestEvent $testEvent)
+    {
+        $test = $testEvent->getTest();
+        $testName = $test->getName();
+        $testClass = $test instanceof Cest
+            ? get_class($test->getTestClass())
+            : null;
+        $event = new TestCaseStartedEvent($this->uuid, $testName);
+        if (class_exists($testClass, false)) {
+            $annotationManager = new Annotation\AnnotationManager(Annotation\AnnotationProvider::getClassAnnotations($testClass));
+            $annotationManager->updateTestCaseEvent($event);
+        }
+        $this->getLifecycle()->fire($event);
+    }
+
     public function testStart(TestEvent $testEvent)
     {
         $test = $testEvent->getTest();
         $testName = $test->getName();
-        $testClassName = $test->getName(false);
-        $className = get_class($test);
+        $className = $test instanceof Cest
+            ? get_class($test->getTestClass())
+            : $testName;
         $event = new TestCaseStartedEvent($this->uuid, $testName);
-        if (method_exists($className, $testClassName)){
-            $annotationManager = new Annotation\AnnotationManager(Annotation\AnnotationProvider::getMethodAnnotations($className, $testClassName));
+        if (method_exists($className, $testName)){
+            $annotationManager = new Annotation\AnnotationManager(Annotation\AnnotationProvider::getMethodAnnotations($className, $testName));
             $annotationManager->updateTestCaseEvent($event);
         }
         $this->getLifecycle()->fire($event);
